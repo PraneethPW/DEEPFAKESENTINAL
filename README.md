@@ -1,8 +1,8 @@
 # DeepFake Sentinel
 
-**Vision Transformer-Based Deepfake Detection and Forged-Region Highlighting**
+**Complementary Vision Transformer Detection and Forged-Region Highlighting**
 
-DeepFake Sentinel is a full-stack media-forensics screening platform for images and short videos. It validates real uploads, calculates input-quality signals, runs a configurable Hugging Face Vision Transformer, derives attention-rollout evidence from the model's tensors, persists the result, and keeps the final review decision human.
+DeepFake Sentinel is a full-stack media-forensics screening platform for images and short videos. It validates real uploads, calculates input-quality signals, combines a face-manipulation Vision Transformer with a modern synthetic-image detector, derives attention-rollout evidence from the primary model's tensors, persists the result, and keeps the final review decision human.
 
 > This is decision support—not an authenticity oracle. Model scores and attention overlays can be wrong and must not be the sole basis for consequential decisions.
 
@@ -31,8 +31,8 @@ The core principle is **input → model signal → visual evidence → human dec
 - JWT registration, login, current-user lookup, protected routes, and backend ownership checks
 - Actual image decoding and video inspection—not MIME-only validation
 - Configurable image/video limits, safe filenames, SHA-256 traceability, and duplicate awareness
-- Singleton Hugging Face `AutoModelForImageClassification` with CPU, CUDA, and MPS selection
-- Face-aware inference through OpenCV with an explicitly recorded full-frame fallback
+- Singleton Hugging Face detector ensemble with CPU, CUDA, and MPS selection
+- Face-aware manipulation inference plus full-frame synthetic-image inference
 - Resolution, blur, brightness, contrast, and face-availability quality signals
 - Inconclusive band with versioned thresholds and optional temperature calibration
 - ViT attention rollout rendered as grayscale attention, color heatmap, and overlay assets
@@ -78,9 +78,9 @@ DeepFake-Sentinel/
 
 ## Model and evidence pipeline
 
-The default model identifier is `hamzenium/ViT-Deepfake-Classifier`; replace it through `DEEPFAKE_MODEL_ID` or provide a local compatible checkpoint through `DEEPFAKE_MODEL_CHECKPOINT`. The loader verifies that the label mapping contains a manipulated/fake class before it can return a result.
+The default ensemble uses `hamzenium/ViT-Deepfake-Classifier` for face manipulation and `delpot/steganograph-ia-detector` for synthetic images from modern generator families. Replace them through `DEEPFAKE_MODEL_ID` and `SYNTHETIC_MODEL_ID`, disable the second detector with `SYNTHETIC_DETECTOR_ENABLED=false`, or provide a local primary checkpoint through `DEEPFAKE_MODEL_CHECKPOINT`. Each loader verifies that its label mapping contains a manipulated/generated class.
 
-For each image, the service decodes the media, extracts the largest valid padded face crop when available, computes quality signals, applies the configured image processor, and evaluates the ViT. A model that does not expose usable attention tensors can still produce a classification, but evidence is marked unavailable rather than fabricated.
+For each image, the service decodes the media, extracts the largest valid padded face crop when available, and computes quality signals. The primary detector evaluates that crop while the synthetic-image detector evaluates the complete frame. The maximum of the two complementary risk signals is retained so a strong warning from either specialist is not averaged away. Scores between the configured authentic and manipulated thresholds remain inconclusive. This risk fusion improves coverage but is not a calibrated probability and cannot guarantee detection of unseen generators.
 
 Attention rollout averages heads, adds residual identity, normalizes each layer, recursively multiplies attention matrices, extracts CLS-to-patch influence, infers the spatial token grid from the token count, resizes it to the analysed crop, and renders private evidence assets. The overlay indicates influence, not a segmentation mask.
 
@@ -136,7 +136,7 @@ The root `.env.example` documents all settings. Important groups are:
 
 - Database/auth: `DATABASE_URL`, `JWT_SECRET`, `JWT_ALGORITHM`, `ACCESS_TOKEN_MINUTES`
 - Origins: `FRONTEND_URL` (comma-separated exact origins; never wildcarded with credentials)
-- Detector: `DEEPFAKE_MODEL_ID`, `DEEPFAKE_MODEL_CHECKPOINT`, `MODEL_DEVICE`, `MODEL_LOCAL_ONLY`
+- Detector: `DEEPFAKE_MODEL_ID`, `DEEPFAKE_MODEL_CHECKPOINT`, `SYNTHETIC_DETECTOR_ENABLED`, `SYNTHETIC_MODEL_ID`, `MODEL_DEVICE`, `MODEL_LOCAL_ONLY`
 - Interpretation: `AUTHENTIC_THRESHOLD`, `MANIPULATED_THRESHOLD`, `CALIBRATION_ARTIFACT`
 - Media: `MAX_IMAGE_MB`, `MAX_VIDEO_MB`, `MAX_VIDEO_SECONDS`, `MAX_VIDEO_FRAMES`
 - Capacity: `MAX_CONCURRENT_INFERENCE`
@@ -235,7 +235,7 @@ For durable production media retention, implement the provided storage boundary 
 - Local private storage is appropriate for development, not durable multi-instance hosting.
 - OpenCV Haar face detection is intentionally replaceable and less robust than a modern detector.
 - Model probabilities are not described as calibrated unless a valid calibration artifact is loaded.
-- Actual performance depends entirely on the configured checkpoint, its training data, and the target media distribution.
+- Actual performance depends on both configured checkpoints, their training data, and the target media distribution. New generators can still evade both detectors.
 - Video sampling is designed for short prototype clips, not long-form media.
 - Attention rollout is model influence, not ground-truth forged-region segmentation.
 
@@ -246,4 +246,3 @@ Durable job queues, S3 storage, stronger face tracking, temporal deepfake archit
 ## Responsible use
 
 See [`docs/RESPONSIBLE_USE.md`](docs/RESPONSIBLE_USE.md). Preserve original source material separately when expert examination or legal chain-of-custody is required.
-

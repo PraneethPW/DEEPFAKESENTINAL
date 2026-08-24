@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     deepfake_model_id: str = "hamzenium/ViT-Deepfake-Classifier"
     deepfake_model_checkpoint: str = ""
+    synthetic_detector_enabled: bool = True
+    synthetic_model_id: str = "delpot/steganograph-ia-detector"
     model_device: str = "auto"
     model_local_only: bool = False
     calibration_artifact: str = ""
@@ -62,6 +64,17 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.frontend_url.split(",") if origin.strip()]
+
+    @property
+    def detector_model_id(self) -> str:
+        primary = (
+            Path(self.deepfake_model_checkpoint).name
+            if self.deepfake_model_checkpoint
+            else self.deepfake_model_id
+        )
+        if self.synthetic_detector_enabled:
+            return f"{primary} + {self.synthetic_model_id}"
+        return primary
 
 
 @lru_cache

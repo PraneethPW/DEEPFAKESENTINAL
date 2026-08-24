@@ -4,7 +4,7 @@ from PIL import Image
 
 from app.ml.aggregation import aggregate_probabilities
 from app.ml.attention import attention_rollout
-from app.ml.inference import classify
+from app.ml.inference import classify, fuse_detector_scores
 from app.ml.quality import analyse_quality
 
 
@@ -12,6 +12,24 @@ def test_threshold_classification():
     assert classify(0.2) == "LIKELY_AUTHENTIC"
     assert classify(0.5) == "INCONCLUSIVE"
     assert classify(0.8) == "LIKELY_MANIPULATED"
+
+
+def test_complementary_detector_preserves_strong_synthetic_warning():
+    fused = fuse_detector_scores(primary=0.03, synthetic=0.97)
+    assert fused == 0.97
+    assert classify(fused) == "LIKELY_MANIPULATED"
+
+
+def test_complementary_detector_keeps_weak_disagreement_inconclusive():
+    fused = fuse_detector_scores(primary=0.03, synthetic=0.5)
+    assert fused == 0.5
+    assert classify(fused) == "INCONCLUSIVE"
+
+
+def test_primary_detector_still_drives_manipulation_warning():
+    fused = fuse_detector_scores(primary=0.91, synthetic=0.08)
+    assert fused == 0.91
+    assert classify(fused) == "LIKELY_MANIPULATED"
 
 
 def test_quality_is_calculated_from_pixels():
@@ -35,4 +53,3 @@ def test_video_aggregation_is_deterministic():
     assert result["score"] == 0.25
     assert result["classification"] == "LIKELY_AUTHENTIC"
     assert aggregate_probabilities([0.9, 0.8])["classification"] == "INCONCLUSIVE"
-

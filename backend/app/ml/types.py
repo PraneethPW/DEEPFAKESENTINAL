@@ -25,6 +25,9 @@ class InferenceResult:
     raw_scores: dict[str, float]
     attentions: tuple[Any, ...] | None = None
     calibrated: bool = False
+    primary_fake_probability: float | None = None
+    synthetic_fake_probability: float | None = None
+    fusion_method: str = "primary_only"
 
 
 @dataclass
@@ -32,4 +35,3 @@ class FrameSample:
     frame_index: int
     timestamp_ms: int
     image: np.ndarray
-

@@ -63,7 +63,10 @@ def _save_evidence(db, analysis: Analysis, image: Image.Image, result, frame_id:
         frame_id=frame_id,
         method="ATTENTION_ROLLOUT",
         available=False,
-        metadata_json={"language": "Regions indicate model influence, not pixel-level forgery."},
+        metadata_json={
+            "language": "Regions indicate model influence, not pixel-level forgery.",
+            "scope": "face-manipulation detector; the synthetic-image detector does not expose this map",
+        },
     )
     if result.attentions:
         try:
@@ -112,8 +115,8 @@ def _process_image(db, analysis: Analysis, source: Path) -> None:
     db.commit()
     add_event(db, analysis.id, "MODEL_INFERENCE", "Vision Transformer inference started")
     with inference_slots:
-        result = run_inference(face.image)
-    analysis.model_id = settings.deepfake_model_id
+        result = run_inference(face.image, synthetic_image=image)
+    analysis.model_id = settings.detector_model_id
     analysis.model_version = getattr(model_manager.model.config, "_commit_hash", None) or "configured"
     analysis.fake_probability = result.fake_probability
     analysis.real_probability = result.real_probability
@@ -131,7 +134,20 @@ def _process_image(db, analysis: Analysis, source: Path) -> None:
         )
     )
     db.commit()
-    add_event(db, analysis.id, "MODEL_INFERENCE", "Model signal produced", {"classification": result.classification})
+    add_event(
+        db,
+        analysis.id,
+        "MODEL_INFERENCE",
+        "Complementary detector signals combined"
+        if result.synthetic_fake_probability is not None
+        else "Primary detector signal produced",
+        {
+            "classification": result.classification,
+            "primary_fake_probability": result.primary_fake_probability,
+            "synthetic_fake_probability": result.synthetic_fake_probability,
+            "fusion_method": result.fusion_method,
+        },
+    )
 
     analysis.status = "GENERATING_EVIDENCE"
     db.commit()
@@ -156,6 +172,8 @@ def _process_video(db, analysis: Analysis, source: Path) -> None:
     if not samples:
         raise ValueError("No usable frames could be decoded")
     values: list[float] = []
+    primary_values: list[float] = []
+    synthetic_values: list[float] = []
     qualities = []
     base = storage.analysis_dir(analysis.user_id, analysis.id)
     for position, sample in enumerate(samples):
@@ -171,8 +189,12 @@ def _process_video(db, analysis: Analysis, source: Path) -> None:
             {"frame_index": sample.frame_index, "timestamp_ms": sample.timestamp_ms},
         )
         with inference_slots:
-            result = run_inference(face.image)
+            result = run_inference(face.image, synthetic_image=image)
         values.append(result.fake_probability)
+        if result.primary_fake_probability is not None:
+            primary_values.append(result.primary_fake_probability)
+        if result.synthetic_fake_probability is not None:
+            synthetic_values.append(result.synthetic_fake_probability)
         frame_preview = _save_image(image, base / f"frame_{position:03d}.webp")
         frame = VideoFrame(
             analysis_id=analysis.id,
@@ -196,6 +218,11 @@ def _process_video(db, analysis: Analysis, source: Path) -> None:
         db.commit()
 
     aggregate = aggregate_probabilities(values)
+    aggregate["detectors"] = {
+        "fusion_method": "maximum_risk",
+        "primary_frame_scores": primary_values,
+        "synthetic_frame_scores": synthetic_values,
+    }
     representative = qualities[0]
     representative.face_detected = any(item.face_detected for item in qualities)
     representative.warnings = sorted({warning for item in qualities for warning in item.warnings})
@@ -203,7 +230,7 @@ def _process_video(db, analysis: Analysis, source: Path) -> None:
         "LIMITED" if any(item.status == "LIMITED" for item in qualities) else "GOOD"
     )
     analysis.status = "AGGREGATING"
-    analysis.model_id = settings.deepfake_model_id
+    analysis.model_id = settings.detector_model_id
     analysis.model_version = getattr(model_manager.model.config, "_commit_hash", None) or "configured"
     analysis.fake_probability = aggregate["score"]
     analysis.real_probability = 1 - aggregate["score"] if aggregate["score"] is not None else None
