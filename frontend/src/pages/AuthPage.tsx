@@ -15,7 +15,7 @@ type FormData = z.infer<typeof schema>;
 
 export function AuthPage({register = false}: {register?: boolean}) {
   const {user, authenticate} = useAuth(); const navigate = useNavigate(); const [show,setShow] = useState(false); const [serverError,setServerError] = useState('');
-  const {register: field, handleSubmit, formState: {errors, isSubmitting}} = useForm<FormData>({resolver: zodResolver(schema), defaultValues:{name:'',email:'',password:''}});
+  const {register: field, handleSubmit, formState: {errors, isSubmitting}} = useForm<FormData>({resolver: zodResolver(schema), defaultValues:{name:register?'':undefined,email:'',password:''}});
   if (user) return <Navigate to="/app" replace/>;
   const submit = handleSubmit(async (values) => {
     setServerError('');
